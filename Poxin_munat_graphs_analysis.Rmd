@@ -1,0 +1,698 @@
+---
+title: "poxin_munat_graphs_analysis"
+output: html_document
+date: "2024-05-04"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Փողին մունաթ
+
+```{r}
+library(ggplot2)
+library(dplyr)
+library(leaflet)
+library(RColorBrewer)
+library(gt)
+library(gtExtras)
+library(leaflet.extras)
+library(wordcloud)
+library(DescTools)
+```
+
+
+```{r}
+billionaires <- read.csv("Billionaires.csv")
+```
+
+## The plots
+
+## Wealth by continents. Plotted as a bar plot
+
+```{r}
+ggplot(data = billionaires, aes(x = continent, y = wealth, fill = "Greens"))+
+  geom_bar(stat = "identity")
+#change color
+```
+
+## Wealth by gender
+```{r}
+wealth_gender <- ggplot(data = billionaires, aes(x = gender, y = wealth, 
+                                                 fill = gender)) +
+  geom_bar(stat = "identity") +
+  labs(x = "Gender", y = "Wealth", title = "Wealth by Gender") +
+  scale_fill_manual(values = c("pink", "skyblue"))+
+  scale_y_continuous(labels = scales::comma)
+
+wealth_gender
+
+```
+## The number of male and female billionaires
+```{r}
+
+billionaires_gender <- billionaires %>%
+  group_by(gender) %>%
+  summarize(count=n()) %>%
+  mutate(percentage = count/sum(count)*100)
+
+ggplot(data=billionaires_gender, aes(x=gender, y=count , fill=gender)) +
+  geom_bar(stat='identity')+
+  scale_fill_manual(values=c('deeppink', 'blue3'))+
+  labs(x = 'Gender', y = 'Count')+
+  ggtitle('The difference in the number of male and female billionaires.')+
+  scale_x_discrete(labels = c('F' = 'Female', 'M' = 'Male'))+
+  geom_text(aes(label=paste0(round(percentage), '%')), vjust=-0.5, size=3, fontface='bold')
+```
+
+## Box plots describing the age distribution of each gender by continent
+First we calculated the age as float numbers using as.Date()
+```{r}
+billionaires = billionaires %>%
+  mutate(birth_date = as.Date(birth_date))%>%
+  mutate(age_float = as.numeric(difftime(Sys.Date(), birth_date, units = "days")) / 365.25)
+```
+Then we created the graph
+```{r}
+ggplot(data = billionaires, aes(x = age_float, fill = gender)) +
+  geom_boxplot()+
+  facet_grid(continent~.~gender)+
+  labs(x = "age of billionaires as float numbers", title = "Distribution of age by gender and continent")
+```
+
+## The distribution of age by gender showing the count in a histogram by continent.
+```{r}
+ggplot(data = billionaires, aes(x = age_float, fill = gender)) +
+  scale_color_manual(c("pink", "skyblue"))+
+  geom_histogram(binwidth=5)+
+  facet_grid(gender~.~continent)+
+  labs(x = "age of billionaires as float numbers", title = "Distribution of age by gender and continent")
+```
+## The correlation between age and wealth in a scatter plot by gender
+```{r}
+ggplot(data = billionaires, aes(x = age_float, y = wealth, color = gender)) +
+  geom_point(alpha = 0.4)+
+  facet_grid(continent~.~gender)+
+  ylim(0,20000)+
+  labs(x = "age of billionaires as float numbers", title = "Distribution of age by gender and continent")
+
+gender_cor <- billionaires%>%
+  group_by(gender)%>%
+  summarise(age_wealth_correlation = cor(age_float, wealth))
+gender_cor %>%
+  gt()%>%
+  gt_theme_guardian()%>%
+  tab_header(title = "Correlation: Wealth vs. Age")%>%
+  gt_color_rows(age_wealth_correlation, domain = c(0, 1), palette = "Greens")
+```
+Since the correlation is not that visible we zoomed in and calculated the correlation coefficient values. As it turned out for women the correlation between age and wealth is stronger than for men, meaning that the older women get, the wealthier they get. However, this comparison is strictly relative, as for both the coefficient is very close to 0 implying a very weak correlation. To see it better we zoomed in the graph.
+```{r}
+ggplot(data = billionaires, aes(x = age_float, y = wealth)) +
+  geom_point(color = "red")+
+  xlim(40, 60) +
+  ylim(0, 2500) +
+  labs(x = "age of billionaires as float numbers|range(40-60)", y = "their wealth/1000|range(0-2500)", title = "correlation between age and wealth|zoomed in")
+```
+As can be seen, there is not a noticeable correlation between age and wealth among billionaires, which means that anyone doubting their abilities to become one because of their age should reconsider their beliefs.
+
+
+## A map with the birth years of billionaires
+
+```{r}
+# Define breaks for color bins
+rang <- seq(min(billionaires$birth_year), max(billionaires$birth_year), by = 20)
+
+# Create color palette
+col <- colorBin("Spectral", domain = billionaires$birth_year, bins = rang)
+
+# Create leaflet map
+wherebillion <- leaflet(billionaires) %>%
+  addTiles() %>%
+  setView( lng = 2.34, lat = 48.85, zoom = 3 ) %>% 
+  addCircleMarkers( lng = ~country_long, lat = ~country_lat, fillOpacity = 0.6,
+    color = ~col(birth_year), radius = 4, stroke = TRUE,
+    label = ~paste("Industry:", industry)
+  ) %>%
+  addLegend( pal = col, values = ~birth_year, opacity = 0.9, 
+             title = "Birth Year", position = "bottomright"
+  )
+
+wherebillion
+```
+
+## The number of billionaires born during 1920-2004
+```{r cars}
+billionaires_byyear <- billionaires %>%
+  group_by(birth_year) %>%
+  summarize(count_year=n())
+
+ggplot(billionaires_byyear, aes(x=birth_year, y=count_year)) +
+  geom_point(shape=15, color='magenta3') + #s that all lines go to right
+  
+  labs(x='Number of billionaires born', y='Year of birth')+
+  ggtitle('Number of billionaires born during 1920-2004.')
+
+```
+
+##Billionaires' birth-month
+```{r}
+max(billionaires_byyear$birth_year)
+
+billionaires$birth_month <-   factor(billionaires$birth_month, levels=c(1:12))
+
+billionaires_bymonth <- billionaires %>%
+  group_by(birth_month) %>%
+  summarize(count_month=n())
+
+ggplot(billionaires_bymonth, aes(x=birth_month, y=count_month)) +
+  geom_bar(stat='identity', fill='red3', width=.4) + #s that all lines go to right
+  labs(x='Number of billionaires born', y='Month of birth')+
+  ggtitle('Number of billionaires born depending on month.')+
+  scale_x_discrete(labels=c('1'='January', '2'='February', '3'='March', '4'='April', '5'='May', '6'='June', '7'='July', '8'='August', '9'='September', '10'='October', '11'='November', '12'='December'))+
+  theme(axis.text.x=element_text(angle=90))
+```
+
+
+##Bilionaires' birth day
+
+```{r}
+billionaires_byday <- billionaires %>%
+  group_by(birth_day) %>%
+  summarize(count_day=n())
+
+ggplot(billionaires_byday, aes(x=birth_day, y=count_day)) +
+  geom_segment(aes(x=birth_day, xend=birth_day, y=0,yend=count_day), color='darkblue')+
+  geom_point(shape=19, size=3, color='darkblue') + #s that all lines go to right
+  labs(y='Number of billionaires born', x='Birth day')+
+  ggtitle('Number of billionaires depending on the day')
+```
+
+
+## Bar plot depicting the amount of female and male billionaires in each industry.
+```{r}
+indplot <- ggplot(data = billionaires, aes(y = industry, fill = gender)) +
+  geom_bar(position = "dodge", width = 0.7) + 
+  labs(y = "Frequency", title = "Industry Distribution by Gender") + 
+  scale_fill_manual(values = c("pink", "skyblue"), name = "Gender", 
+                    labels = c("Female", "Male")) +  
+  theme_minimal()
+indplot
+femm <-billionaires %>%
+  group_by(industry) %>%
+  summarise(females = sum(gender == "F"), males = sum(gender == "M"))%>%
+  arrange(desc(females))
+femm%>%
+  gt()
+
+```
+Unfortunately, there is no industry with more female billionaires than males, here՛s the visualization
+
+
+##  Maximum and minimum wealth by gender and country
+```{r}
+country_gender_max_min_aggregated_until_KZ <- billionaires %>%
+  filter(country_of_residence %in% c("Algeria",
+"Andorra",
+"Argentina",
+"Armenia",
+"Australia",
+"Austria",
+"Bahamas",
+"Bahrain",
+"Belgium",
+"Bermuda",
+"Brazil",
+"British Virgin Islands",
+"Cambodia",
+"Canada",
+"Cayman Islands",
+"Chile",
+"China",
+"Colombia",
+"Cyprus",
+"Czech Republic",
+"Denmark",
+"Eswatini (Swaziland)",
+"Finland",
+"France",
+"Georgia",
+"Germany",
+"Greece",
+"Guernsey",
+"Hong Kong",
+"Hungary",
+"India",
+"Indonesia",
+"Ireland",
+"Israel",
+"Italy",
+"Japan",
+"Kazakhstan"))%>%
+  group_by(country_of_residence, gender) %>%
+  summarise(max_wealth = max(wealth), min_wealth = min(wealth))
+```
+We divided the country alphabetically for the graphs to be coherent
+```{r}
+ggplot(data = country_gender_max_min_aggregated_until_KZ, aes(x = country_of_residence, y = max_wealth, fill = gender))+
+  geom_bar(stat = "identity", position = 'dodge')+
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))+
+  labs(x = "Countries", y = "Maximum wealth", title = "Maximum wealth of each country by gender")
+```
+
+```{r}
+billionaires %>%
+  filter(country_of_residence %in% c("Latvia",
+"Lebanon",
+"Liechtenstein",
+"Luxembourg",
+"Malaysia",
+"Mexico",
+"Monaco",
+"Morocco",
+"Nepal",
+"Netherlands",
+"New Zealand",
+"Nigeria",
+"Norway",
+"Oman",
+"Peru",
+"Philippines",
+"Poland",
+"Portugal",
+"Qatar",
+"Romania",
+"Russia",
+"Singapore",
+"Slovakia",
+"South Africa",
+"South Korea",
+"Spain",
+"Sweden",
+"Switzerland",
+"Taiwan",
+"Tanzania",
+"Thailand",
+"Turkey",
+"Turks and Caicos Islands",
+"Ukraine",
+"United Arab Emirates",
+"United Kingdom",
+"United States",
+"Uruguay",
+"Uzbekistan",
+"Vietnam"))%>%
+  group_by(country_of_residence, gender) %>%
+  summarise(max_wealth = max(wealth), min_wealth = min(wealth))%>%
+  ggplot(aes(x = country_of_residence, y = max_wealth, fill = gender))+
+  geom_bar(stat = "identity", position = 'dodge')+
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))+
+  labs(x = "Countries", y = "Maximum wealth", title = "Maximum wealth of each country by gender")
+```
+
+##  Minimum wealth of countries by gender
+```{r}
+billionaires %>%
+  filter(country_of_residence %in% c("Algeria",
+"Andorra",
+"Argentina",
+"Armenia",
+"Australia",
+"Austria",
+"Bahamas",
+"Bahrain",
+"Belgium",
+"Bermuda",
+"Brazil",
+"British Virgin Islands",
+"Cambodia",
+"Canada",
+"Cayman Islands",
+"Chile",
+"China",
+"Colombia",
+"Cyprus",
+"Czech Republic",
+"Denmark",
+"Eswatini (Swaziland)",
+"Finland",
+"France",
+"Georgia",
+"Germany",
+"Greece",
+"Guernsey",
+"Hong Kong",
+"Hungary",
+"India",
+"Indonesia",
+"Ireland",
+"Israel",
+"Italy",
+"Japan",
+"Kazakhstan"))%>%
+  group_by(country_of_residence, gender) %>%
+  summarise(max_wealth = max(wealth), min_wealth = min(wealth))%>%
+  ggplot(aes(x = country_of_residence, y = min_wealth, fill = gender))+
+  geom_bar(stat = "identity", position = 'dodge')+
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))+
+  labs(x = "Countries", y = "Minimum wealth", title = "Minimum wealth of each country by gender")
+```
+
+```{r}
+billionaires %>%
+  filter(country_of_residence %in% c("Latvia",
+"Lebanon",
+"Liechtenstein",
+"Luxembourg",
+"Malaysia",
+"Mexico",
+"Monaco",
+"Morocco",
+"Nepal",
+"Netherlands",
+"New Zealand",
+"Nigeria",
+"Norway",
+"Oman",
+"Peru",
+"Philippines",
+"Poland",
+"Portugal",
+"Qatar",
+"Romania",
+"Russia",
+"Singapore",
+"Slovakia",
+"South Africa",
+"South Korea",
+"Spain",
+"Sweden",
+"Switzerland",
+"Taiwan",
+"Tanzania",
+"Thailand",
+"Turkey",
+"Turks and Caicos Islands",
+"Ukraine",
+"United Arab Emirates",
+"United Kingdom",
+"United States",
+"Uruguay",
+"Uzbekistan",
+"Vietnam"))%>%
+  group_by(country_of_residence, gender) %>%
+  summarise(max_wealth = max(wealth), min_wealth = min(wealth))%>%
+  ggplot(aes(x = country_of_residence, y = min_wealth, fill = gender))+
+  geom_bar(stat = "identity", position = 'dodge')+
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))+
+  labs(x = "Countries", y = "Minimum wealth", title = "Minimum wealth of each country by gender")
+```
+##  Life expectancy and wealth by gender
+```{r}
+
+lifeexp <- ggplot(billionaires, aes(y = life_expectancy, x = wealth, color = gender)) +
+  geom_boxplot(aes(fill = gender), notch = TRUE) +
+  labs(title = "Life Expectancy vs. Wealth by Gender", 
+       x = "Wealth (Billions)", y = "Life Expectancy (Years)") +  
+  theme_light() + 
+  scale_color_manual(values = c("pink", "skyblue"))+
+  scale_fill_brewer(palette="Pastel1")
+lifeexp
+```
+
+
+##  Life expectancy of different billionaires on a map
+
+```{r}
+#nasa space bg1
+rang2 <- seq(min(billionaires$life_expectancy), max(billionaires$life_expectancy), by = 5)
+
+# Create color palette
+col2 <- colorBin("YlOrBr", domain = billionaires$life_expectancy, bins = rang2)
+
+
+#or morning map - "addProviderTiles("Esri.WorldImagery") %>%"
+nightwherebillion <- leaflet(billionaires) %>%
+  addTiles() %>%
+  setView( lng = 2.34, lat = 48.85, zoom = 3 ) %>% 
+  addProviderTiles("NASAGIBS.ViirsEarthAtNight2012")%>%
+  addCircleMarkers( lng = ~country_long, lat = ~country_lat, fillOpacity = 0.5,
+                    color = ~col2(life_expectancy), radius = 4, stroke = TRUE,
+                    label = ~paste("Country:", citizenship)
+  ) %>%
+  addLegend( pal = col2, values = ~life_expectancy, opacity = 0.9, 
+             title = "Life expectancy", position = "topleft"
+  )
+nightwherebillion
+```
+
+
+##  Wordcloud by industry
+```{r}
+
+indus <- billionaires$industry
+fre <- table(billionaires$industry)
+words <- names(fre)
+
+print(paste("Out of", length(fre), "industries:"))
+minindex <- which.min(fre)
+print(paste("Insdustry with least amount of billionares:", names(fre)[minindex],
+            ", with frequency:", fre[minindex]))
+print("And")
+
+maxindex <- which.max(fre)
+print(paste("Insdustry with most amount of billionares:", names(fre)[maxindex],
+            ", with frequency:", fre[maxindex]))
+fre
+
+print("Most frequent industries of billionaires")
+
+par(bg="black")
+wordcloud(words, fre, scale = c(2, 1), random.order = TRUE, 
+          rot.per = 0.5, colors = rainbow(length(words), 0.7))
+
+```
+##  Wordcloud by sources
+
+```{r}
+sources <- billionaires$source
+fresource <- table(billionaires$source)
+wordsource <- names(fresource)
+minindexsource <- which.min(fresource)
+maxindexsource <- which.max(fresource)
+```
+
+
+## Out of 898 sources:
+
+# Source with least amount of billionares: 3D printing , with frequency: 1
+
+
+## And:
+
+#Source with most amount of billionares: Real estate , with frequency: 149
+
+
+##By analyzing the data: the most frequent sources of billionaires are...
+
+
+```{r}
+par(bg="black")
+wordcloud(wordsource, fresource, scale = c(2, 1), min.freq = 10,
+          random.order = TRUE, rot.per = 0.7, 
+          color = rainbow(length(wordsource), 0.7))
+```
+
+
+
+# Correlation between tertiary eduaction and wealth by industry
+```{r}
+
+edu <- ggplot(data = billionaires, aes(x = g_tertiary_ed_enroll, y = wealth, color = industry))+
+  geom_point()+facet_wrap(.~industry)
+edu
+
+edu2 <- billionaires %>%
+  group_by(industry)%>%
+  summarise(wealth_correlation = cor(g_tertiary_ed_enroll, wealth))%>%
+  arrange(desc(wealth_correlation))
+edu2 %>%
+  gt()%>%
+  gt_theme_guardian()%>%
+  tab_header(title = "Correlation: Wealth vs. Teritiery eduaction")%>%
+  gt_color_rows(wealth_correlation, domain = c(0, 1), palette = "Greens")
+```
+
+##  Count of observations in each industry by continent
+
+
+
+## Line plot relating the wealth/revenue with the tax rate, the color being the continent
+
+```{r}
+ggplot(data = billionaires, aes(x = tax_rate, y = wealth, color = continent)) +
+  geom_line(size = 1) +
+  facet_grid(continent~.)+theme_light()
+```
+
+## Mean Tax rate and mean wealth by continents
+```{r}
+tax_wealth_aggregated <- billionaires %>%
+  group_by(continent) %>%
+  summarise(mean_tax = mean(as.numeric(tax_rate), na.rm = TRUE), mean_wealth = mean(wealth))
+
+ggplot(data = tax_wealth_aggregated, aes(x = continent, y = mean_tax, fill = mean_wealth))+
+  geom_bar(stat = "identity")+
+  labs(x = "Continents", y = "Mean tax rate of a continent", title = "The correlation between mean tax rate and mean wealth of a continent")
+  
+```
+
+## Mean wealth by continents and the respective mean tax revenue. Plotted as a bar plot
+
+```{r}
+wealth_aggregated <- billionaires %>%
+  group_by(continent) %>%
+  summarise(mean_wealth = mean(wealth), mean_tax_revenue = mean(tax_revenue))
+
+ggplot(data = wealth_aggregated, aes(x = continent, y = mean_wealth, fill = mean_tax_revenue))+
+  geom_bar(stat = "identity")+
+  scale_color_brewer(palette = "Reds", direction = -1)+
+  labs(x = "Continents", y = "Mean Wealth of the continent", title = "Mean wealth by continent tied to mean tax revenue")
+  
+```
+## Mean wealth by continent in a bar plot, the color being the mean CPI of the continent
+```{r}
+cpi_aggregated <- billionaires %>%
+  group_by(continent) %>%
+  summarise(mean_wealth = mean(wealth), mean_cpi = mean(as.numeric(cpi_country), na.rm = TRUE))
+#add the number of people in each continent
+ggplot(data = cpi_aggregated, aes(x = continent, y = mean_wealth, fill = mean_cpi))+
+  geom_bar(stat = "identity")+
+  labs(x = "Continents", y = "Mean Wealth of the continent", title = "Mean wealth by continent tied to mean CPI")
+```
+
+
+## GDP and wealth by continents
+```{r}
+gdp_wealth_aggregated <- billionaires %>%
+  group_by(continent) %>%
+  summarise(mean_gdp = mean(as.numeric(gdp_country), na.rm = TRUE), mean_wealth = mean(wealth))
+
+ggplot(data = gdp_wealth_aggregated, aes(x = continent, y = mean_gdp, fill = mean_wealth))+
+  geom_bar(stat = "identity")+
+  labs(x = "Continents", y = "Mean GDP of a continent", title = "The correlation between GDP and mean wealth of a continent")
+#consider the min and max and see their range
+```
+
+## Armenians!
+```{r}
+armenian_billionaires <- billionaires %>%
+  filter(citizenship == "Armenia")
+print(armenian_billionaires)
+```
+
+## Map of billionaires(find the Armenian)
+```{r}
+map <- leaflet() %>%
+       addTiles() %>%
+       addCircleMarkers(
+    data = billionaires,
+    lng = ~country_long,
+    lat = ~country_lat,
+    radius = ~sqrt(wealth) * 0.03,
+    color = ~ifelse(citizenship == "Armenia", "red", "darkgreen"),
+    fillOpacity = 0.7,
+    popup = ~paste("Country: ", country_of_residence, "<br>Billionaire: ", full_name)
+  )
+print(map)
+```
+
+
+##Zodic sign frequency among billionaires analysis
+```{r}
+
+zodiac_aggregated <- billionaires%>%
+  mutate(zodiacs = Zodiac(birth_date, lang = "engl", stringsAsFactors = TRUE))%>%
+  group_by(zodiacs)%>%
+  summarise(count = n(), mean_wealth = mean(wealth), proportion = count/sum(count)*100 )%>%
+  arrange(desc(mean_wealth))
+
+ggplot(data = zodiac_aggregated, aes(x = " ", y = count, fill = zodiacs))+
+  scale_color_brewer("Set1")+
+  geom_bar(stat = "identity", width = 1, color = "white")+
+  coord_polar("y", start = 0)+
+  theme_void()
+```
+
+
+
+##The wealthiest zodiac signs
+```{r}
+ggplot(data = zodiac_aggregated, aes(x = zodiacs, y = mean_wealth, fill = "pink2")) +
+  geom_bar(stat = "identity", width = 1, color = "white") +  
+  labs(title = "Mean Wealth by Zodiac Sign", x = "Zodiac Sign", y = "Mean Wealth") +  
+  theme_minimal()+
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))+
+  geom_text(aes(label=count), vjust=-0.5, size=3, fontface='bold')
+```
+
+##Billionaires by initials
+
+```{r}
+initial_finder <- function(x){
+  substr(x, 1, 1)
+}
+
+billionaires <- billionaires %>%
+  mutate(initial = initial_finder(full_name))
+
+billionaires_byname <- billionaires %>%
+  group_by(initial) %>%
+  summarise(count_byinitial = n()) %>%
+  mutate(percentage_initial = count_byinitial/sum(count_byinitial)*100)
+
+ggplot(billionaires_byname, aes(x=initial, y=count_byinitial, fill=initial))+
+  geom_bar(stat='identity')+
+  ggtitle('How likely are you to become a billionaire?')+
+  labs(x='The first letter of your name.', y='How many people are billionaires.')+
+  geom_text(aes(label=paste0(round(percentage_initial), '%')), vjust=-0.5, size=3, fontface='bold')
+```
+
+##Վերնագիրը չգիտեմ՝ ինչ դնեմ
+```{r}
+billionaires_bycountinent <- billionaires%>%
+  group_by(continent)%>%
+  summarize(count_countries = n())
+
+label_billionaires <- billionaires_bycountinent
+```
+
+```{r}
+number_of_bar <- nrow(label_billionaires)
+angle <-  90 - 360 * (label_billionaires$count_countries-0.5) /number_of_bar     # I substract 0.5 because the letter must have the angle of the center of the bars. Not extreme right(1) or extreme left (0)
+```
+```{r}
+# calculate the alignment of labels: right or left
+# If I am on the left part of the plot, my labels have currently an angle < -90
+label_billionaires$hjust<-ifelse( angle < -90, 1, 0)
+
+# flip angle BY to make them readable
+label_billionaires$angle<-ifelse(angle < -90, angle+180, angle)
+
+
+
+ggplot(label_billionaires, aes(x=continent, y=count_countries))+
+  geom_bar(stat='identity', fill=alpha('blue', 0.3))+
+  ylim(-1000, 1062)+
+  coord_polar(start=0)+
+  theme_minimal() +
+  theme(
+    axis.text = element_blank(),
+    axis.title = element_blank(),
+    panel.grid = element_blank(),
+    plot.margin = unit(rep(-2,4), "cm")
+  )+
+  ggtitle('Distribution by continents.')+
+  geom_text(data=label_billionaires, aes(x=continent, y=count_countries, label=continent, hjust=hjust), color="black", fontface="bold",alpha=0.6, size=2.5, angle= angle, inherit.aes = FALSE ) 
+
+```
