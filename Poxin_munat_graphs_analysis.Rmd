@@ -696,3 +696,88 @@ ggplot(label_billionaires, aes(x=continent, y=count_countries))+
   geom_text(data=label_billionaires, aes(x=continent, y=count_countries, label=continent, hjust=hjust), color="black", fontface="bold",alpha=0.6, size=2.5, angle= angle, inherit.aes = FALSE ) 
 
 ```
+
+```{r}
+
+
+top_10_youngest <- head(bil[order(bil$age), ], 10)
+youngest_billionaires_plot <- ggplot(data = top_10_youngest, aes(x = age, y = paste(first_name, last_name))) +
+  geom_bar(stat = "identity", aes(fill = wealth), show.legend = FALSE) +
+  labs(title = "Top 10 Youngest Billionaires in the World",
+       x = "Age",
+       y = "Billionaire",
+       caption = "Source: Your Data Source") +
+  scale_fill_gradient(low = "blue", high = "red", name = "Wealth") +
+  theme(axis.text.y = element_text(size = 8))
+youngest_billionaires_plot <- youngest_billionaires_plot +
+  geom_text(aes(label = paste("$", wealth, "B")), hjust = -0.1, size = 3.5)
+print(youngest_billionaires_plot)
+
+```
+
+```{r}
+sources_<- bil%>%
+group_by(source)%>%
+summarize(wealth = mean(wealth))%>%
+arrange(desc(wealth))
+top_15 <- head(sources_, 15)
+pie_chart <- ggplot(top_15, aes(x = "", y = wealth, fill =source)) +
+  geom_bar(stat = "identity") +
+  coord_polar("y", start = 0) +  # Convert to polar coordinates
+  labs(title = "Wealth Distribution of Top 15 Companies",fill = "Company") +geom_text(aes(label =source), position = position_stack(vjust = 0.5)) + theme_void()  
+
+print(pie_chart)
+
+```
+
+
+```{r}
+top_10_oldest <- bil%>%
+arrange(desc(bil$age))
+top_10_oldest<-head(top_10_oldest,10)
+
+oldest_plot <- ggplot(data = top_10_oldest, aes(x = age, y = paste(first_name, last_name))) + geom_bar(stat = "identity", aes(fill = wealth),show.legend = FALSE) + labs(title = "Top 10 Oldest Billionaires in the World", x = "Age", y = "Billionaire") + scale_fill_gradient(low = "salmon", high = "blue", name = "Wealth") +
+oldest_plot<-oldest_plot + theme(axis.text.y = element_text(size = 8)) +  geom_text(aes(label = paste("$", wealth, "B")), hjust = -0.1, size = 3.5)
+
+
+print(oldest_plot)
+
+```
+
+
+
+
+```{r}
+wealthiest_individuals <- aggregate(wealth ~ country_of_residence, data = bil, FUN = function(x) {
+  wealthiest_index <- which.max(x)
+  return(x[wealthiest_index])
+})
+
+# Merge the aggregated data with the original dataframe to get the corresponding first name, last name, and gender
+wealthiest_individuals <- merge(wealthiest_individuals, bil, by.x = c("country_of_residence", "wealth"), by.y = c("country_of_residence", "wealth"))
+
+# Create the scatter plot
+scatter_plot <- ggplot(data = wealthiest_individuals, aes(x = country_of_residence, y = wealth, color = gender)) + geom_point() +labs(title = "Wealthiest People in Each Country", x = "Country", y = "Wealth", color = "Gender") +theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+print(scatter_plot)
+
+
+
+
+
+```
+
+
+``` {r}
+industry_plot <- ggplot(data =bil, aes(x = industry)) + 
+  geom_bar(aes(fill = continent), width = 0.7) +
+  labs(title = "Count of Observations in Each Industry by Continent",
+       x = "Industry",
+       y = "Count") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+
+```
+
+
+
+
