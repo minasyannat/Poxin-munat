@@ -5,7 +5,7 @@ library(ggplot2)
 library(dplyr)
 
 
-
+#1 year/month/day connection with wealth
 billionaires_byyear <- billionaires %>%
   group_by(birth_year) %>%
   summarize(count_year=n())
@@ -48,7 +48,7 @@ ggplot(billionaires_byday, aes(x=birth_day, y=count_day)) +
 
 
 
-
+#2 wealth dependence on gender
 billionaires_gender <- billionaires %>%
   group_by(gender) %>%
   summarize(count=n()) %>%
@@ -63,30 +63,25 @@ ggplot(data=billionaires_gender, aes(x=gender, y=count , fill=gender)) +
   geom_text(aes(label=paste0(round(percentage), '%')), vjust=-0.5, size=3, fontface='bold')
 
 
+
+
+#3. wealth dependence on continent of residence
 billionaires_bycountinent <- billionaires%>%
   group_by(continent)%>%
   summarize(count_countries = n())
 
-label_billionaires <- billionaires_bycountinent
-
-# calculate the ANGLE of the labels
-number_of_bar <- nrow(label_billionaires)
-angle <-  90 - 360 * (label_billionaires$count_countries-0.5) /number_of_bar     # I substract 0.5 because the letter must have the angle of the center of the bars. Not extreme right(1) or extreme left (0)
-
-# calculate the alignment of labels: right or left
-# If I am on the left part of the plot, my labels have currently an angle < -90
-label_billionaires$hjust<-ifelse( angle < -90, 1, 0)
-
-# flip angle BY to make them readable
-label_billionaires$angle<-ifelse(angle < -90, angle+180, angle)
 
 
 
-ggplot(label_billionaires, aes(x=continent, y=count_countries))+
-  geom_bar(stat='identity', fill=alpha('blue', 0.3))+
+
+
+ggplot(billionaires_bycountinent, aes(x=continent, y=count_countries, fill=continent))+
+  geom_bar(stat='identity')+
   ylim(-1000, 1062)+
   coord_polar(start=0)+
   theme_minimal() +
+  scale_fill_manual(values = c('darkslategrey', 'darkslategray4', 'darkturquoise','darkslategray3', 'darkslategray2', 'darkslategray1'))+
+
   theme(
     axis.text = element_blank(),
     axis.title = element_blank(),
@@ -94,17 +89,13 @@ ggplot(label_billionaires, aes(x=continent, y=count_countries))+
     plot.margin = unit(rep(-2,4), "cm")
   )+
   ggtitle('Distribution by continents.')+
-  geom_text(data=label_billionaires, aes(x=continent, y=count_countries, label=continent, hjust=hjust), color="black", fontface="bold",alpha=0.6, size=2.5, angle= angle, inherit.aes = FALSE ) 
+  geom_text(data=billionaires_bycountinent, aes(x=continent, y=count_countries, label=continent, hjust=-0.2), color="black", fontface="bold",alpha=0.6, size=2.5, angle= c(60, 0, 300, 240, 180, 120), inherit.aes = FALSE ) 
 
-```
-```{r}
-```
 
-***4.***
-  First/last Letter of name with wealth 
-we can make it as in #2
 
-```{r}
+#4.First/last Letter of name with wealth, we can make it as in #2
+
++
 initial_finder <- function(x){
   substr(x, 1, 1)
 }
