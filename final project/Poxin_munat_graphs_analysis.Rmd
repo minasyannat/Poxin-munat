@@ -1,0 +1,839 @@
+---
+title: "Փողին մունաթ"
+output: html_document
+date: "2024-05-11"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## The tools and packages used in this project
+
+```{r}
+library(ggplot2)
+library(dplyr)
+library(leaflet)
+library(RColorBrewer)
+library(gt)
+library(gtExtras)
+library(leaflet.extras)
+library(wordcloud)
+library(DescTools)
+```
+
+It all starts with our "sacred" dataframe
+
+So let's read and store it in the "billionaires" variable
+
+```{r}
+billionaires <- read.csv("Billionaires.csv")
+```
+
+Then let's commence with the magic of data. 
+Data analysis and visualizations!
+
+### The analysis by the creation of the graphs
+
+*Wealth by continents. Plotted as a bar plot*
+
+```{r}
+ggplot(data = billionaires, aes(x = continent, y = wealth))+
+  geom_bar(stat = "identity", fill = "pink1")+
+  scale_y_continuous(labels = scales::comma)
+
+```
+This graph simply shows the amount of maximum wealth in each continent. And North America has the highest value of them all, preceded by Asia and Europe.
+
+*Wealth by gender*
+```{r}
+wealth_gender <- ggplot(data = billionaires, aes(x = gender, y = wealth, 
+                                                 fill = gender)) +
+  geom_bar(stat = "identity") +
+  labs(x = "Gender", y = "Wealth", title = "Wealth by Gender") +
+  scale_fill_manual(values = c("pink", "skyblue"))+
+  scale_y_continuous(labels = scales::comma)
+  
+
+wealth_gender
+
+```
+This graph here depicts the wealth by gender with an almost entirely predictable result of men having a bigger amount of wealth.
+
+*The number of male and female billionaires*
+
+```{r}
+
+billionaires_gender <- billionaires %>%
+  group_by(gender) %>%
+  summarize(count=n()) %>%
+  mutate(percentage = count/sum(count)*100)
+
+ggplot(data=billionaires_gender, aes(x=gender, y=count , fill=gender)) +
+  geom_bar(stat='identity')+
+  scale_fill_manual(values=c('pink1', 'skyblue'))+
+  labs(x = 'Gender', y = 'Count')+
+  ggtitle('The difference in the number of male and female billionaires.')+
+  scale_x_discrete(labels = c('F' = 'Female', 'M' = 'Male'))+
+  geom_text(aes(label=paste0(round(percentage), '%')), vjust=-0.5, size=3, fontface='bold')
+```
+Another graph showing the dramatic inequality among the amount of male and female billionaires, the former being 88%, the latter - 12%!
+
+*Box plots describing the age distribution of each gender by continent*
+
+First we calculated the age as float numbers using as.Date()
+
+```{r}
+billionaires = billionaires %>%
+  mutate(birth_date = as.Date(birth_date))%>%
+  mutate(age_float = as.numeric(difftime(Sys.Date(), birth_date, units = "days")) / 365.25)
+```
+
+here the code mutates, a.k.a. changes the column "birth_date" by turning each value into a "date" object. Then we added a new column called "age_float", which holds the difference(difftime()) of the current date(Sys.Date()) and the "birth_date" column, divided by 365.25 to account for leap years and consider the days (units = "days"). 
+
+As a result we got floating point values for the ages of the billionaires to get continuous data.
+
+
+Then we created the graph
+
+```{r}
+ggplot(data = billionaires, aes(x = age_float, fill = gender)) +
+  geom_boxplot()+
+  scale_fill_manual(values = c("pink1", "skyblue"))+
+  facet_grid(continent~.~gender)+
+  labs(x = "age of billionaires as float numbers", title = "Distribution of age by gender and continent")
+```
+Here we can see that women's distribution around their median value is more widespread than that of men's, which means for women we have a higher diversity regarding age. It also can be noted that the lowest median age for women is recorded in Oceania and is around 60 years old. While for men those lowest median values are in Asia and Europe and are above 60 years old.
+Also for men, there are more outliers than for women.
+
+*The distribution of age by gender showing the count in a histogram by continent.*
+```{r}
+ggplot(data = billionaires, aes(x = age_float, fill = gender)) +
+  scale_fill_manual(values = c("pink1", "skyblue"))+
+  geom_histogram(binwidth=5)+
+  facet_grid(gender~.~continent)+
+  labs(x = "age of billionaires as float numbers", title = "Distribution of age by gender and continent")
+```
+In this graph we see that in Africa there are no female billionaires. Moreover, in this graph we see the number of billionaires by their age, noticing a significant amount of middle aged male billionaires in Asia, Europe and North America.
+
+*The correlation between age and wealth in a scatter plot by gender*
+```{r}
+ggplot(data = billionaires, aes(x = age_float, y = wealth, color = gender)) +
+  geom_point(alpha = 0.4)+
+  facet_grid(continent~.~gender)+
+  ylim(0,20000)+
+  labs(x = "age of billionaires as float numbers", title = "Distribution of age by gender and continent")
+
+gender_cor <- billionaires%>%
+  group_by(gender)%>%
+  summarise(age_wealth_correlation = cor(age_float, wealth))
+gender_cor %>%
+  gt()%>%
+  gt_theme_guardian()%>%
+  tab_header(title = "Correlation: Wealth vs. Age")%>%
+  gt_color_rows(age_wealth_correlation, domain = c(0, 1), palette = "Greens")
+```
+
+Since the correlation is not that visible we zoomed in and calculated the correlation coefficient values. As it turned out for women the correlation between age and wealth is stronger than for men, meaning that the older women get, the wealthier they become. However, this comparison is strictly relative, as for both the coefficient is very close to 0 implying a very weak correlation. To see it better we zoomed in the graph.
+
+```{r}
+ggplot(data = billionaires, aes(x = age_float, y = wealth)) +
+  geom_point(color = "magenta3")+
+  xlim(40, 60) +
+  ylim(0, 2500) +
+  labs(x = "age of billionaires as float numbers|range(40-60)", y = "their wealth/1000|range(0-2500)", title = "correlation between age and wealth|zoomed in")
+```
+As can be seen, there is not a noticeable correlation between age and wealth among billionaires, which means that anyone doubting their abilities to become one because of their age should reconsider their beliefs.
+
+
+*A map with the birth years of billionaires*
+
+First get an overview of the "birth_year" column
+
+```{r}
+billionaires %>%
+  summarise("minimum birthyear" = min(birth_year), "max birthyear" = max(birth_year), "mean birthyear" = mean(birth_year), "median birthyear" = median(birth_year), 'standard deviation' = sd(birth_year))
+```
+
+Then generate a map to tie the birth years with the locations of each billionaire.
+
+```{r}
+# Define breaks for color bins
+rang <- seq(min(billionaires$birth_year), max(billionaires$birth_year), by = 20)
+
+# Create color palette
+col <- colorBin("Spectral", domain = billionaires$birth_year, bins = rang)
+
+# Create leaflet map
+wherebillion <- leaflet(billionaires) %>%
+  addTiles() %>%
+  setView( lng = 2.34, lat = 48.85, zoom = 3 ) %>% 
+  addCircleMarkers( lng = ~country_long, lat = ~country_lat, fillOpacity = 0.6,
+    color = ~col(birth_year), radius = 4, stroke = TRUE,
+    label = ~paste("Industry:", industry)
+  ) %>%
+  addLegend( pal = col, values = ~birth_year, opacity = 0.9, 
+             title = "Birth Year", position = "bottomright"
+  )
+
+wherebillion
+```
+
+We notice that in Europe the birth years are primarily from the 1961-1981 period, while in the Americas the billionaires are older, being born in 1921-1961 time frame.
+
+Moreover, it can be stated that the youngest billionaires are accumulated in Finland!
+
+*The number of billionaires born during 1920-2004*
+```{r cars}
+billionaires_byyear <- billionaires %>%
+  group_by(birth_year) %>%
+  summarize(count_year=n())
+
+ggplot(billionaires_byyear, aes(x=birth_year, y=count_year)) +
+  geom_point(shape=15, color='magenta3') + #s that all lines go to right
+  
+  labs(x='Year of birth', y='Number of billionaires born')+
+  ggtitle('Number of billionaires born during 1920-2004.')
+
+```
+Here we see a normal distribution with the billionaires being mostly born around 1957-1960, which also, as stated above, is the median value for this column.
+
+*Billionaires' birth-month*
+```{r}
+max(billionaires_byyear$birth_year)
+
+billionaires$birth_month <-   factor(billionaires$birth_month, levels=c(1:12))
+
+billionaires_bymonth <- billionaires %>%
+  group_by(birth_month) %>%
+  summarize(count_month=n())
+
+ggplot(billionaires_bymonth, aes(x=birth_month, y=count_month)) +
+  geom_bar(stat='identity', fill='pink1', width=.4) + #s that all lines go to right
+  labs(x='Month of birth', y='Number of billionaires born')+
+  ggtitle('Number of billionaires born depending on month.')+
+  scale_x_discrete(labels=c('1'='January', '2'='February', '3'='March', '4'='April', '5'='May', '6'='June', '7'='July', '8'='August', '9'='September', '10'='October', '11'='November', '12'='December'))+
+  theme(axis.text.x=element_text(angle=90))
+```
+The majority are born in January!
+
+
+*Bilionaires' birth day*
+
+```{r}
+billionaires_byday <- billionaires %>%
+  group_by(birth_day) %>%
+  summarize(count_day=n())
+
+ggplot(billionaires_byday, aes(x=birth_day, y=count_day)) +
+  geom_segment(aes(x=birth_day, xend=birth_day, y=0,yend=count_day), color='blue')+
+  geom_point(shape=19, size=3, color='blue') + #s that all lines go to right
+  labs(y='Number of billionaires born', x='Birth day')+
+  ggtitle('Number of billionaires depending on the day')
+```
+Interestingly, the majority are born on the first day of their birth months!
+And the least on the 31st day!
+
+*Bar plot depicting the amount of female and male billionaires in each industry.*
+```{r}
+indplot <- ggplot(data = billionaires, aes(y = industry, fill = gender)) +
+  geom_bar(position = "dodge", width = 0.7) + 
+  labs(y = "Frequency", title = "Industry Distribution by Gender") + 
+  scale_fill_manual(values = c("pink", "skyblue"), name = "Gender", 
+                    labels = c("Female", "Male")) +  
+  theme_minimal()
+indplot
+femm <-billionaires %>%
+  group_by(industry) %>%
+  summarise(females = sum(gender == "F"), males = sum(gender == "M"))%>%
+  arrange(desc(females))
+femm%>%
+  gt()
+
+```
+
+Unfortunately, there is no industry with more female billionaires than males. And the industry with most males is "Finance and investments".
+
+Presumably because in "old money" billionaire families it was more common to pass the whole inheritance as the successful corporation or a large amount of wealth to the sons, men are more prevalent in this sense than women.
+
+
+*Maximum and minimum wealth by gender and country*
+```{r}
+country_gender_max_min_aggregated_until_KZ <- billionaires %>%
+  filter(country_of_residence %in% c("Algeria",
+"Andorra",
+"Argentina",
+"Armenia",
+"Australia",
+"Austria",
+"Bahamas",
+"Bahrain",
+"Belgium",
+"Bermuda",
+"Brazil",
+"British Virgin Islands",
+"Cambodia",
+"Canada",
+"Cayman Islands",
+"Chile",
+"China",
+"Colombia",
+"Cyprus",
+"Czech Republic",
+"Denmark",
+"Eswatini (Swaziland)",
+"Finland",
+"France",
+"Georgia",
+"Germany",
+"Greece",
+"Guernsey",
+"Hong Kong",
+"Hungary",
+"India",
+"Indonesia",
+"Ireland",
+"Israel",
+"Italy",
+"Japan",
+"Kazakhstan"))%>%
+  group_by(country_of_residence, gender) %>%
+  summarise(max_wealth = max(wealth), min_wealth = min(wealth))
+```
+We divided the country alphabetically for the graphs to be coherent
+```{r}
+ggplot(data = country_gender_max_min_aggregated_until_KZ, aes(x = country_of_residence, y = max_wealth, fill = gender))+
+  geom_bar(stat = "identity", position = 'dodge')+ 
+  scale_fill_manual(values = c("magenta", "blue"), name = "Gender", 
+                    labels = c("Female", "Male"))+
+  theme_light()+
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))+
+  
+  labs(x = "Countries", y = "Maximum wealth", title = "Maximum wealth of each country by gender")
+```
+For this chunk of countries, the highest values for both men and women are in France. And, while for the majority of countries men are "rich"-er, for Australia and Chile the picture is reversed.
+
+Now let's look at the next chunk with their maximum values
+
+```{r}
+billionaires %>%
+  filter(country_of_residence %in% c("Latvia",
+"Lebanon",
+"Liechtenstein",
+"Luxembourg",
+"Malaysia",
+"Mexico",
+"Monaco",
+"Morocco",
+"Nepal",
+"Netherlands",
+"New Zealand",
+"Nigeria",
+"Norway",
+"Oman",
+"Peru",
+"Philippines",
+"Poland",
+"Portugal",
+"Qatar",
+"Romania",
+"Russia",
+"Singapore",
+"Slovakia",
+"South Africa",
+"South Korea",
+"Spain",
+"Sweden",
+"Switzerland",
+"Taiwan",
+"Tanzania",
+"Thailand",
+"Turkey",
+"Turks and Caicos Islands",
+"Ukraine",
+"United Arab Emirates",
+"United Kingdom",
+"United States",
+"Uruguay",
+"Uzbekistan",
+"Vietnam"))%>%
+  group_by(country_of_residence, gender) %>%
+  summarise(max_wealth = max(wealth), min_wealth = min(wealth))%>%
+  ggplot(aes(x = country_of_residence, y = max_wealth, fill = gender))+ 
+  scale_fill_manual(values = c("magenta", "blue"), name = "Gender", 
+                    labels = c("Female", "Male"))+
+  theme_light()+
+  geom_bar(stat = "identity", position = 'dodge')+
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))+
+  labs(x = "Countries", y = "Maximum wealth", title = "Maximum wealth of each country by gender")
+```
+Here men have higher wealth than women uniformly throughout all the countries.
+
+*Minimum wealth of countries by gender*
+```{r}
+billionaires %>%
+  filter(country_of_residence %in% c("Algeria",
+"Andorra",
+"Argentina",
+"Armenia",
+"Australia",
+"Austria",
+"Bahamas",
+"Bahrain",
+"Belgium",
+"Bermuda",
+"Brazil",
+"British Virgin Islands",
+"Cambodia",
+"Canada",
+"Cayman Islands",
+"Chile",
+"China",
+"Colombia",
+"Cyprus",
+"Czech Republic",
+"Denmark",
+"Eswatini (Swaziland)",
+"Finland",
+"France",
+"Georgia",
+"Germany",
+"Greece",
+"Guernsey",
+"Hong Kong",
+"Hungary",
+"India",
+"Indonesia",
+"Ireland",
+"Israel",
+"Italy",
+"Japan",
+"Kazakhstan"))%>%
+  group_by(country_of_residence, gender) %>%
+  summarise(max_wealth = max(wealth), min_wealth = min(wealth))%>%
+  ggplot(aes(x = country_of_residence, y = min_wealth, fill = gender))+
+  geom_bar(stat = "identity", position = 'dodge')+ 
+  scale_fill_manual(values = c("magenta", "blue"), name = "Gender", 
+                    labels = c("Female", "Male"))+
+  theme_light()+
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))+
+  labs(x = "Countries", y = "Minimum wealth", title = "Minimum wealth of each country by gender")
+```
+For minimum values of wealth we see higher values for women than for men, which is an interesting observation! The biggest differences are recorded in the Czech Republic and Austria.
+
+```{r}
+billionaires %>%
+  filter(country_of_residence %in% c("Latvia",
+"Lebanon",
+"Liechtenstein",
+"Luxembourg",
+"Malaysia",
+"Mexico",
+"Monaco",
+"Morocco",
+"Nepal",
+"Netherlands",
+"New Zealand",
+"Nigeria",
+"Norway",
+"Oman",
+"Peru",
+"Philippines",
+"Poland",
+"Portugal",
+"Qatar",
+"Romania",
+"Russia",
+"Singapore",
+"Slovakia",
+"South Africa",
+"South Korea",
+"Spain",
+"Sweden",
+"Switzerland",
+"Taiwan",
+"Tanzania",
+"Thailand",
+"Turkey",
+"Turks and Caicos Islands",
+"Ukraine",
+"United Arab Emirates",
+"United Kingdom",
+"United States",
+"Uruguay",
+"Uzbekistan",
+"Vietnam"))%>%
+  group_by(country_of_residence, gender) %>%
+  summarise(max_wealth = max(wealth), min_wealth = min(wealth))%>%
+  ggplot(aes(x = country_of_residence, y = min_wealth, fill = gender))+
+  geom_bar(stat = "identity", position = 'dodge')+ 
+  scale_fill_manual(values = c("magenta", "blue"), name = "Gender", 
+                    labels = c("Female", "Male"))+
+  theme_light()+
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))+
+  labs(x = "Countries", y = "Minimum wealth", title = "Minimum wealth of each country by gender")
+```
+Approximately the same picture is present for this second chunk of countries, with the biggest diffrence being in Russia and Luxembourg.
+
+*Life expectancy and wealth by gender*
+```{r}
+
+lifeexp <- ggplot(billionaires, aes(y = life_expectancy, x = wealth, color = gender)) +
+  geom_boxplot(aes(fill = gender), notch = TRUE) +
+  labs(title = "Life Expectancy vs. Wealth by Gender", 
+       x = "Wealth (Billions)", y = "Life Expectancy (Years)") +  
+  theme_light() + 
+  scale_color_manual(values = c("pink1", "skyblue"))+
+  scale_fill_brewer(palette="Pastel1")
+lifeexp
+```
+Even though the number of female billionaires is less than that of men's in our dataset, women have higher life expectancy. 
+It can also be mentioned that men have more outliers and pretty low values for life expectancy. However, men's wealth distribution is larger than for females, with their medians being about the same. 
+
+
+*Life expectancy of different billionaires on a map*
+
+```{r}
+#nasa space bg1
+rang2 <- seq(min(billionaires$life_expectancy), max(billionaires$life_expectancy), by = 5)
+
+# Create color palette
+col2 <- colorBin("YlOrBr", domain = billionaires$life_expectancy, bins = rang2)
+
+
+#or morning map - "addProviderTiles("Esri.WorldImagery") %>%"
+nightwherebillion <- leaflet(billionaires) %>%
+  addTiles() %>%
+  setView( lng = 2.34, lat = 48.85, zoom = 3 ) %>% 
+  addProviderTiles("NASAGIBS.ViirsEarthAtNight2012")%>%
+  addCircleMarkers( lng = ~country_long, lat = ~country_lat, fillOpacity = 0.5,
+                    color = ~col2(life_expectancy), radius = 4, stroke = TRUE,
+                    label = ~paste("Country:", citizenship)
+  ) %>%
+  addLegend( pal = col2, values = ~life_expectancy, opacity = 0.9, 
+             title = "Life expectancy", position = "topleft"
+  )
+nightwherebillion
+```
+
+The highest life expectancy for billionaires is recorded in Europe, the lowest - in Africa, presumably for stereotypical reasons.
+
+*Wordcloud by industry*
+
+```{r}
+
+indus <- billionaires$industry
+fre <- table(billionaires$industry)
+words <- names(fre)
+
+print(paste("Out of", length(fre), "industries:"))
+minindex <- which.min(fre)
+print(paste("Insdustry with least amount of billionares:", names(fre)[minindex],
+            ", with frequency:", fre[minindex]))
+print("And")
+
+maxindex <- which.max(fre)
+print(paste("Insdustry with most amount of billionares:", names(fre)[maxindex],
+            ", with frequency:", fre[maxindex]))
+fre
+
+print("Most frequent industries of billionaires")
+
+par(bg="black")
+wordcloud(words, fre, scale = c(2, 1), random.order = TRUE, 
+          rot.per = 0.5, colors = rainbow(length(words), 0.7))
+
+```
+*Wordcloud by sources*
+
+```{r}
+sources <- billionaires$source
+fresource <- table(billionaires$source)
+wordsource <- names(fresource)
+minindexsource <- which.min(fresource)
+maxindexsource <- which.max(fresource)
+```
+
+
+Out of 898 sources:
+
+Source with least amount of billionares: 3D printing , with frequency: 1
+
+And:
+
+Source with most amount of billionares: Real estate , with frequency: 149
+
+By analyzing the data: the most frequent sources of billionaires are...
+
+
+```{r}
+par(bg="black")
+wordcloud(wordsource, fresource, scale = c(2, 1), min.freq = 10,
+          random.order = TRUE, rot.per = 0.7, 
+          color = rainbow(length(wordsource), 0.7))
+```
+
+
+
+*Correlation between tertiary education and wealth by industry*
+```{r}
+
+edu <- ggplot(data = billionaires, aes(x = g_tertiary_ed_enroll, y = wealth, color = industry))+
+  geom_point()+facet_wrap(.~industry)
+edu
+
+edu2 <- billionaires %>%
+  group_by(industry)%>%
+  summarise(wealth_correlation = cor(g_tertiary_ed_enroll, wealth))%>%
+  arrange(desc(wealth_correlation))
+edu2 %>%
+  gt()%>%
+  gt_theme_guardian()%>%
+  tab_header(title = "Correlation: Wealth vs. Teritiery eduaction")%>%
+  gt_color_rows(wealth_correlation, domain = c(0, 1), palette = "Greens")
+```
+
+By calculating the correlation between wealth and tertiary eduaction, we observed that in general the correlation is positive, though still very low: with the highest being 0.19 in Sports and the lowest being -0.12 for Telecom. Additionally, the tertiary eduaction for the Healthcare industry is unexpectedly low with a correlation of 0.03.
+
+*Count of observations in each industry by continent*
+``` {r}
+industry_plot <- ggplot(data =billionaires, aes(x = industry)) + 
+  geom_bar(aes(fill = continent), width = 0.7) +
+  labs(title = "Count of Observations in Each Industry by Continent",
+       x = "Industry",
+       y = "Count") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+industry_plot
+
+```
+The data show the number of billionaires engaged in each industry. The bars are coloured by continents which reveals which continents are mostly engaged in what industry. 
+More specifically, Northamerican and southamerican billionaires are more into Finance and Investments, Asian ones are into manufacturing, europeans are more into Fashion and Retail. Moreover, the data encodes that most of the billionaires all over the world are engaged in Finance and Investments.
+
+
+*Line plot relating the wealth/revenue with the tax rate, the color being the continent*
+
+```{r}
+ggplot(data = billionaires, aes(x = tax_rate, y = wealth, color = continent)) +
+  geom_line(size = 1) +
+  facet_grid(continent~.)+theme_light()
+```
+This analysis examines the correlation between the wealth and tax rates across continents. Interestingly, in certain continents, higher tax rates are associated with increased wealth, contrary to what might be expected. Moreover, after an increase the wealth decreases sharply, which is another reason why we cannot depend on this analysis.
+
+*Mean Tax rate and mean wealth by continents*
+```{r}
+tax_wealth_aggregated <- billionaires %>%
+  group_by(continent) %>%
+  summarise(mean_tax = mean(as.numeric(tax_rate), na.rm = TRUE), mean_wealth = mean(wealth))
+
+ggplot(data = tax_wealth_aggregated, aes(x = continent, y = mean_tax, fill = mean_wealth))+
+  geom_bar(stat = "identity")+
+  labs(x = "Continents", y = "Mean tax rate of a continent", title = "The correlation between mean tax rate and mean wealth of a continent")
+```
+In this graph we see an expected outcome of the inverse relationship between mean tax rate and mean wealth of a continent, where with the increase of mean tax rate, the mean wealth decreases. For example, in North America the mean tax rate is the lowest and the mean wealth is the highest.
+
+*Mean wealth by continents and the respective mean tax revenue. Plotted as a bar plot*
+
+```{r}
+wealth_aggregated <- billionaires %>%
+  group_by(continent) %>%
+  summarise(mean_wealth = mean(wealth), mean_tax_revenue = mean(tax_revenue))
+
+ggplot(data = wealth_aggregated, aes(x = continent, y = mean_wealth, fill = mean_tax_revenue))+
+  geom_bar(stat = "identity")+
+  scale_color_brewer(palette = "Reds", direction = -1)+
+  labs(x = "Continents", y = "Mean Wealth of the continent", title = "Mean wealth by continent tied to mean tax revenue")
+  
+```
+Here also, the relationship is pretty self-explanatory. We see an increase in mean tax revenue for each continent associated with a lower mean wealth. However Oceania has a somewhat "abnormal" behavious, with its' tax rate the highest, but the mean wealth the forth in its' rank after North America, Asia, Africa and Europe.
+
+
+*Mean wealth by continent in a bar plot, the color being the mean CPI of the continent*
+```{r}
+cpi_aggregated <- billionaires %>%
+  group_by(continent) %>%
+  summarise(mean_wealth = mean(wealth), mean_cpi = mean(as.numeric(cpi_country), na.rm = TRUE))
+ggplot(data = cpi_aggregated, aes(x = continent, y = mean_wealth, fill = mean_cpi))+
+  geom_bar(stat = "identity")+
+  labs(x = "Continents", y = "Mean Wealth of the continent", title = "Mean wealth by continent tied to mean CPI")
+```
+The data show the mean wealth of each continent. Besides, continent bars coloured by mean cpi data reveal a very important relation between CPI and wealth. So, CPI mean and wealth are inversely related to each other. However, Africa's case is a little different which was not expected.
+
+*GDP and wealth by continents*
+```{r}
+gdp_wealth_aggregated <- billionaires %>%
+  group_by(continent) %>%
+  summarise(mean_gdp = mean(as.numeric(gdp_country), na.rm = TRUE), mean_wealth = mean(wealth))
+
+ggplot(data = gdp_wealth_aggregated, aes(x = continent, y = mean_gdp, fill = mean_wealth))+
+  geom_bar(stat = "identity")+
+  labs(x = "Continents", y = "Mean GDP of a continent", title = "The correlation between GDP and mean wealth of a continent")+
+  scale_y_continuous(labels = scales::comma)
+
+```
+Any relationship with GDP rate and mean wealth rate cannot be understood from the data, however,it shows that North America has the most mean wealth simultaneously having most mean GDP. 
+Second position for GDP rate is taken by Asia which has the lowest mean wealth.That's why it seems there is no sustained relation between the two categories.
+
+*Armenians!*
+```{r}
+armenian_billionaires <- billionaires %>%
+  filter(citizenship == "Armenia")
+print(armenian_billionaires)
+```
+Here we can only see the one and only Armenian billionaire, Ruben Vardanyan
+
+*Map of billionaires(find the Armenian)*
+```{r}
+map <- leaflet() %>%
+       addTiles() %>%
+       addCircleMarkers(
+    data = billionaires,
+    lng = ~country_long,
+    lat = ~country_lat,
+    radius = ~sqrt(wealth) * 0.03,
+    color = ~ifelse(citizenship == "Armenia", "red", "darkgreen"),
+    fillOpacity = 0.7,
+    popup = ~paste("Country: ", country_of_residence, "<br>Billionaire: ", full_name)
+  )
+map
+```
+
+In the map, it is shown the distribution of billionaires over the world. The bigger the circles, the more wealthier the billionaires in the mentioned country.
+
+*Zodic sign frequency among billionaires analysis*
+
+```{r}
+billionaires <- billionaires %>% mutate(zodiacs = Zodiac(birth_date, lang = "engl", stringsAsFactors = TRUE))
+write.csv(billionaires, file = "Billionaires.csv", append = TRUE, row.names = FALSE)
+zodiac_aggregated <- billionaires%>%
+  group_by(zodiacs)%>%
+  summarise(count = n(), mean_wealth = mean(wealth), proportion = count/sum(count)*100 )%>%
+  arrange(desc(mean_wealth))
+
+ggplot(data = zodiac_aggregated, aes(x = " ", y = count, fill = zodiacs))+
+  scale_color_brewer("Set1")+
+  geom_bar(stat = "identity", width = 1, color = "white")+
+  coord_polar("y", start = 0)+
+  theme_void()
+```
+The pie chart illustrates the distribution of billionaires according to their respective zodiac signs. It comes out that the biggest percentage in our dataset take Capricorns. Therefore, it is possible that there is a potential relationship between astrological influences and financial success.
+
+*The wealthiest zodiac signs*
+
+```{r}
+ggplot(data = zodiac_aggregated, aes(x = zodiacs, y = mean_wealth)) +
+  geom_bar(stat = "identity", width = 1, color = "white", , fill = "pink1") +  
+  labs(title = "Mean Wealth by Zodiac Sign", x = "Zodiac Sign", y = "Mean Wealth") +  
+  theme_minimal()+
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))+
+  geom_text(aes(label=count), vjust=-0.5, size=3, fontface='bold')
+```
+Although, from the visualisation, it seems that Pisces have the most mean wealth value, little amount of people from our billionaires have this zodiac sign. Which implies that small amount of data, where there are slightly much big numbers, can lead to a misleading conclusion about the outcomes. 
+Reversibly, Capricorns have the least wealth mean value which is because of there are 590 observations therefore a lot more variance of wealth that takes to a more precise information in terms of larger data predictions.
+
+*Billionaires by initials*
+
+```{r}
+initial_finder <- function(x){
+  substr(x, 1, 1)
+}
+
+billionaires <- billionaires %>%
+  mutate(initial = initial_finder(full_name))
+
+billionaires_byname <- billionaires %>%
+  group_by(initial) %>%
+  summarise(count_byinitial = n()) %>%
+  mutate(percentage_initial = count_byinitial/sum(count_byinitial)*100)
+
+ggplot(billionaires_byname, aes(x=initial, y=count_byinitial, fill=initial))+
+  geom_bar(stat='identity')+
+  ggtitle('How likely are you to become a billionaire?')+
+  labs(x='The first letter of your name.', y='How many people are billionaires.')+
+  geom_text(aes(label=paste0(round(percentage_initial), '%')), vjust=-0.5, size=3, fontface='bold')
+```
+In this graph, we see the possibility of becoming a billionaire depending on the first letter of the first name in percentages.
+How possible are you to become a billionaire?
+
+*Top 10 youngest billionaires*
+```{r}
+
+top_10_youngest <- head(billionaires[order(billionaires$age), ], 10)
+youngest_billionaires_plot <- ggplot(data = top_10_youngest, aes(x = age, y = paste(first_name, last_name))) +
+  geom_bar(stat = "identity", aes(fill = wealth), show.legend = FALSE) +
+  labs(title = "Top 10 Youngest Billionaires in the World",
+       x = "Age",
+       y = "Billionaire",
+       caption = "Source: Your Data Source") +
+  scale_fill_gradient(low = "blue", high = "red", name = "Wealth") +
+  theme(axis.text.y = element_text(size = 6))
+youngest_billionaires_plot <- youngest_billionaires_plot +
+  geom_text(aes(label = paste("$", wealth, "B")), hjust = -0.1, size = 3.5)
+print(youngest_billionaires_plot)
+
+```
+The data show wealth distribution with respect to the age, showing top 10 wealthiest people from our dataframe. It reveals that Mark Mateschits is the youngest billionaire aged 30.
+
+
+*Top 10 oldest billionaires*
+```{r}
+top_10_oldest <- billionaires%>%
+arrange(desc(billionaires$age))
+top_10_oldest<-head(top_10_oldest,10)
+
+oldest_plot <- ggplot(data = top_10_oldest, aes(x = age, y = paste(first_name, last_name))) + geom_bar(stat = "identity", aes(fill = wealth),show.legend = FALSE) + labs(title = "Top 10 Oldest Billionaires in the World", x = "Age", y = "Billionaire") + scale_fill_gradient(low = "magenta", high = "skyblue", name = "Wealth") +
+theme(axis.text.y = element_text(size = 8)) +  geom_text(aes(label = paste("$", wealth, "B")), hjust = -0.1, size = 3.5)
+
+oldest_plot
+
+```
+The data give overall information about the top 10 wealthiest people. From the data we can see that the wealthiest person is Robert Kuok colored by blue bar.
+
+
+*Distribution by source in a pie chart*
+```{r}
+sources_<- billionaires%>%
+group_by(source)%>%
+summarize(wealth = mean(wealth))%>%
+arrange(desc(wealth))
+top_15 <- head(sources_, 15)
+pie_chart <- ggplot(top_15, aes(x = "", y = wealth, fill =source)) +
+  geom_bar(stat = "identity") +
+  coord_polar("y", start = 0) +  # Convert to polar coordinates
+  labs(title = "Wealth Distribution of Top 15 Companies",fill = "Company") + theme_void()  
+
+print(pie_chart)
+
+```
+Piechart shows that  LVMH has the most wealth distribution of people.
+The second position is taken by SpaceX.
+And the third one is of Oracle.
+
+*The wealthiest people in each country*
+```{r}
+wealthiest_individuals <- aggregate(wealth ~ country_of_residence, data = billionaires, FUN = function(x) {
+  wealthiest_index <- which.max(x)
+  return(x[wealthiest_index])
+})
+
+# Merge the aggregated data with the original dataframe to get the corresponding first name, last name, and gender
+wealthiest_individuals <- merge(wealthiest_individuals, billionaires, by.x = c("country_of_residence", "wealth"), by.y = c("country_of_residence", "wealth"))
+
+# Create the scatter plot
+scatter_plot <- ggplot(data = wealthiest_individuals, aes(x = country_of_residence, y = wealth, color = gender)) + geom_point() +labs(title = "Wealthiest People in Each Country", x = "Country", y = "Wealth", color = "Gender") +theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+print(scatter_plot)
+
+```
+
+The wealthiest people in each country are represented by alphabetically arranged countries.From the data, we can see that, the wealthiest person in the world is from France, who is a man. The data also show that in countries like Andorra, Australia, Bermuda, Chile, Czech Republic, Greece and Luxembourg, the wealthiest people are women. And according to data, the wealthiest woman is from Australia.
+
+
+## Conclusions
+
+In conclusion, by analyzing the dataset "billionaires", various parallels were drawn between diverse spheres. 
+There were both predictable outcomes: men exceeding women, and unexpected ones: high CPI with high mean wealth. 
+
+Additionally, some obvious correlations had no variances.
+
+We hope you were able to make some conclusions on your own on the probability of you becoming a billionaire one day too 😉.
+
+
